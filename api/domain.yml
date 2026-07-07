@@ -63,7 +63,7 @@ slots:
     influence_conversation: false
 responses:
   utter_greet:
-  - text: Hey! Welcome to LifeEazy CoWin Vaccine Notifier. I am here to help you, find the available slots near you for the Vaccination
+  - text: Hey! Welcome to MAYDEN SMARTHEALTH PVT LTD. I am here to help you find the available vaccine slots near you.
   utter_How_slots:
   - buttons:
     - payload: /pincode

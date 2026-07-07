@@ -15,60 +15,6 @@ from rasa_sdk.executor import CollectingDispatcher
 
 from main import Dose_Availability_District, Dose_Availability_Pincode, Dose_Availability_Lon_Lat, send_email
 
-class ValidatepincodeForm(FormValidationAction):
-    def name(self) -> Text:
-        return "slot_pincode_form"
-
-    def run(
-        self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: Dict
-    ) -> List[EventType]:
-
-        required_slots = ["pincode", "date"]
-        # "job_after_exit", "job_type", "acquire_skill", "skill_type", "any_business", "business_venture", "need_loan"
-
-        for slot_name in required_slots:
-            if tracker.slots.get(slot_name) is None:
-                # The slot is not filled yet. Request the user to fill this slot next.
-                return [SlotSet("requested_slot", slot_name)]
-
-        return [SlotSet("requested_slot", None)]
-
-class ValidateDistrictForm(FormValidationAction):
-    def name(self) -> Text:
-        return "slot_district_form"
-
-    def run(
-        self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: Dict
-    ) -> List[EventType]:
-
-        required_slots = ["district_id", "date"]
-        # "job_after_exit", "job_type", "acquire_skill", "skill_type", "any_business", "business_venture", "need_loan"
-
-        for slot_name in required_slots:
-            if tracker.slots.get(slot_name) is None:
-                # The slot is not filled yet. Request the user to fill this slot next.
-                return [SlotSet("requested_slot", slot_name)]
-
-        return [SlotSet("requested_slot", None)]
-
-class ValidateLocationForm(FormValidationAction):
-    def name(self) -> Text:
-        return "slot_location_form"
-
-    def run(
-        self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: Dict
-    ) -> List[EventType]:
-
-        required_slots = ["lattitude", "longitude"]
-        # "job_after_exit", "job_type", "acquire_skill", "skill_type", "any_business", "business_venture", "need_loan"
-
-        for slot_name in required_slots:
-            if tracker.slots.get(slot_name) is None:
-                # The slot is not filled yet. Request the user to fill this slot next.
-                return [SlotSet("requested_slot", slot_name)]
-
-        return [SlotSet("requested_slot", None)]
-
 class ActionPincodeSubmit(Action):
 
     def name(self) -> Text:
@@ -86,7 +32,7 @@ class ActionPincodeSubmit(Action):
         ]
         dispatcher.utter_message(text="Would you like to get the details on your email id?",buttons=buttons)
 
-        return []
+        return [SlotSet("pincode", None), SlotSet("date", None)]
 
 class ActionDistrictSubmit(Action):
 
@@ -105,7 +51,7 @@ class ActionDistrictSubmit(Action):
         ]
         dispatcher.utter_message(text="Would you like to get the details on your email id?",buttons=buttons)
 
-        return []
+        return [SlotSet("district_id", None), SlotSet("date", None)]
 
 class ActionLocationSubmit(Action):
 
@@ -123,7 +69,7 @@ class ActionLocationSubmit(Action):
             {'payload':"/deny",'title':"No"},
         ]
         dispatcher.utter_message(text="Would you like to get the details on your email id?",buttons=buttons)
-        return []
+        return [SlotSet("lattitude", None), SlotSet("longitude", None)]
 
 class ActionSendEmail(Action):
 
@@ -193,7 +139,7 @@ class ActionDefaultFallback(Action):
                     {
                         "role": "system",
                         "content": (
-                            "You are the AI assistant for LifeEazy CoWin Vaccine Notifier.\n"
+                            "You are the AI assistant for MAYDEN SMARTHEALTH PVT LTD.\n"
                             "Your primary function is to help users check vaccination slot availability near them "
                             "and answer questions related to COVID-19, vaccines, vaccination centers, eligibility, "
                             "and general health queries.\n"
