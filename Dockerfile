@@ -1,13 +1,19 @@
 FROM rasa/rasa:2.8.1-full
 
-# Switch to root to set up permissions
+# Switch to root to set up directory and permissions
 USER root
+
+# Set the working directory
+WORKDIR /app
 
 # Copy the contents of the api folder to /app
 COPY ./api /app
 
-# Ensure permissions are correct for user 1000 (Hugging Face default)
-RUN chown -R 1000:0 /app && chmod -R 770 /app
+# Set HOME environment variable to /app so Rasa can write cache/config files
+ENV HOME=/app
+
+# Ensure permissions are correct for user 1000 (Hugging Face default) and group 0
+RUN chown -R 1000:0 /app && chmod -R 775 /app
 
 # Expose the Hugging Face port
 EXPOSE 7860
