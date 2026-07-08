@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  rasa:
+    image: rasa/rasa:2.8.1-full
+    container_name: rasa-server
+    ports:
+      - "5005:5005"
+    volumes:
+      - ./api:/app
+    environment:
+      - ACTION_SERVER_HOST=action-server
+    command: run -m models --enable-api --cors "*"
+    depends_on:
+      - action-server
+
+  action-server:
+    image: rasa/rasa-sdk:2.8.2
+    container_name: action-server
+    ports:
+      - "5055:5055"
+    volumes:
+      - ./api:/app
+    environment:
+      - PYTHONPATH=/app
+    command: start --actions actions
