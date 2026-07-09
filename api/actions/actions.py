@@ -119,55 +119,106 @@ class ActionDefaultFallback(Action):
         if not api_key and os.path.exists(key_file_path):
             with open(key_file_path, "r", encoding="utf-8") as f:
                 api_key = f.read().strip()
+
+        system_prompt = (
+            "You are the AI assistant for MAYDEN SMARTHEALTH PVT LTD.\n"
+            "Your primary function is to help users check vaccination slot availability near them "
+            "and answer questions related to COVID-19, vaccines, vaccination centers, eligibility, "
+            "and general health queries.\n"
+            "Always maintain this persona:\n"
+            "1. Be helpful, professional, and friendly.\n"
+            "2. If the user asks something completely unrelated to vaccines, COVID-19, health, "
+            "or vaccination slots, politely decline to answer, and guide them back to checking "
+            "for vaccine slot availability (by Pincode, District ID, or Latitude/Longitude)."
+        )
+
+        groq_success = False
+
+        if api_key:
+            # Try Groq API first
+            try:
+                url = "https://api.groq.com/openai/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message}
+                    ]
+                }
+                response = requests.post(url, headers=headers, json=payload, timeout=12)
+                if response.status_code == 200:
+                    response_json = response.json()
+                    choices = response_json.get("choices", [])
+                    if choices:
+                        content = choices[0].get("message", {}).get("content", "")
+                        dispatcher.utter_message(text=content)
+                        groq_success = True
+                else:
+                    print(f"Groq API returned status {response.status_code}: {response.text}")
+            except Exception as e:
+                print(f"Error calling Groq API: {e}")
+
+        # If Groq failed or was not configured, use Hugging Face Serverless Inference API as backup
+        if not groq_success:
+            print("Falling back to Hugging Face Inference API...")
+            try:
+                # Qwen 2.5 Coder 32B is highly performant, open-source, and free on HF Inference
+                url = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-Coder-32B-Instruct/v1/chat/completions"
                 
-        if not api_key:
-            dispatcher.utter_message(
-                text="Please set your Groq API key in `api/groq_key.txt` or as a `GROQ_API_KEY` environment variable to enable AI answers."
-            )
-            return []
-            
-        # Call Groq API
-        try:
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": "llama-3.3-70b-versatile",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are the AI assistant for MAYDEN SMARTHEALTH PVT LTD.\n"
-                            "Your primary function is to help users check vaccination slot availability near them "
-                            "and answer questions related to COVID-19, vaccines, vaccination centers, eligibility, "
-                            "and general health queries.\n"
-                            "Always maintain this persona:\n"
-                            "1. Be helpful, professional, and friendly.\n"
-                            "2. If the user asks something completely unrelated to vaccines, COVID-19, health, "
-                            "or vaccination slots, politely decline to answer, and guide them back to checking "
-                            "for vaccine slot availability (by Pincode, District ID, or Latitude/Longitude)."
-                        )
-                    },
-                    {"role": "user", "content": user_message}
-                ]
-            }
-            response = requests.post(url, headers=headers, json=payload, timeout=15)
-            response_json = response.json()
-            
-            if response.status_code == 200:
-                choices = response_json.get("choices", [])
-                if choices:
-                    content = choices[0].get("message", {}).get("content", "")
-                    dispatcher.utter_message(text=content)
-                    return []
-            
-            # If API response was not successful
-            error_msg = response_json.get("error", {}).get("message", "Unknown error")
-            dispatcher.utter_message(text=f"Groq API returned an error: {error_msg}")
-        except Exception as e:
-            dispatcher.utter_message(text=f"Error calling Groq API: {str(e)}")
+                # Check for HF token in environment
+                hf_token = os.environ.get("HF_TOKEN")
+                headers = {
+                    "Content-Type": "application/json"
+                }
+                if hf_token:
+                    headers["Authorization"] = f"Bearer {hf_token}"
+                
+                payload = {
+                    "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message}
+                    ],
+                    "max_tokens": 512
+                }
+                response = requests.post(url, headers=headers, json=payload, timeout=12)
+                if response.status_code == 200:
+                    response_json = response.json()
+                    choices = response_json.get("choices", [])
+                    if choices:
+                        content = choices[0].get("message", {}).get("content", "")
+                        dispatcher.utter_message(text=content)
+                        return []
+                
+                # If Qwen fails, try Llama-3.2-3B-Instruct as second backup
+                print(f"HF Qwen failed with {response.status_code}: {response.text}. Trying Llama backup...")
+                url_llama = "https://api-inference.huggingface.co/models/meta-llama/Llama-3.2-3B-Instruct/v1/chat/completions"
+                payload_llama = {
+                    "model": "meta-llama/Llama-3.2-3B-Instruct",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message}
+                    ],
+                    "max_tokens": 512
+                }
+                response_llama = requests.post(url_llama, headers=headers, json=payload_llama, timeout=12)
+                if response_llama.status_code == 200:
+                    response_json = response_llama.json()
+                    choices = response_json.get("choices", [])
+                    if choices:
+                        content = choices[0].get("message", {}).get("content", "")
+                        dispatcher.utter_message(text=content)
+                        return []
+                
+                # If all else fails
+                dispatcher.utter_message(text="I'm sorry, I am currently experiencing technical difficulties with my AI engine. Please search for vaccine slots by entering a Pincode, District ID, or GPS coordinates.")
+            except Exception as e:
+                print(f"Error calling Hugging Face Inference API: {e}")
+                dispatcher.utter_message(text="I'm sorry, I am currently experiencing technical difficulties with my AI engine. Please search for vaccine slots by entering a Pincode, District ID, or GPS coordinates.")
             
         return []
 

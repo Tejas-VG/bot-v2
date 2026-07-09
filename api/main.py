@@ -546,39 +546,25 @@ def Dose_Availability_Lon_Lat(lattitude, longitude):
 # EMAIL (unchanged)
 # ══════════════════════════════════════════════════════════════════════════════
 def send_email(email, message):
-    import smtplib, os
+    import urllib.request
+    import json
     try:
-        host = "smtp.gmail.com"
-        port = 587
-        connection = smtplib.SMTP(host, port)
-        connection.starttls()
-        creds_path = "creds.txt"
-        if not os.path.exists(creds_path):
-            creds_path = os.path.join(os.path.dirname(__file__), "creds.txt")
-        if not os.path.exists(creds_path):
-            return "Email credentials file 'api/creds.txt' is missing."
-        with open(creds_path) as f:
-            lines = [line.strip() for line in f.readlines() if line.strip()]
-
-        if len(lines) >= 2:
-            username = lines[0]
-            password = lines[1]
-        elif len(lines) == 1:
-            username = "innovateyourself2build@gmail.com"
-            password = lines[0]
-        else:
-            return "Email credentials file 'api/creds.txt' is empty."
-
-        if not password or password == "YOUR_GMAIL_APP_PASSWORD":
-            return "Settings placeholder detected. Please configure your 16-digit Google App Password in 'api/creds.txt' (Settings: https://myaccount.google.com/apppasswords)."
-
-        connection.login(username, password)
-        subject = "COVID-19 Vaccine Slot Availability"
-        body    = f"From: {username}\nTo: {email}\nSubject: {subject}\n\n{message}"
-        connection.sendmail(username, email, body)
-        connection.quit()
-        return "success"
+        url = "https://frontend-wine-seven-77.vercel.app/api/send-booking-email"
+        headers = {
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "email": email,
+            "message": message
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=12) as response:
+            res_body = response.read().decode("utf-8")
+            res_json = json.loads(res_body)
+            if res_json.get("status") == "success":
+                return "success"
+            else:
+                return f"Failed to send email. Error: {res_json.get('message')}"
     except Exception as e:
-        if "535" in str(e):
-            return "Gmail SMTP login rejected (Error 535). Please ensure you have set up a 16-digit Google App Password in 'api/creds.txt' (rather than your account password) and enabled 2FA: https://myaccount.google.com/apppasswords"
         return f"Failed to send email. Error: {str(e)}"
