@@ -548,6 +548,26 @@ def Dose_Availability_Lon_Lat(lattitude, longitude):
 def send_email(email, message):
     import urllib.request
     import json
+    import os
+
+    # Read credentials from environment or creds.txt
+    username = os.environ.get("EMAIL_USER")
+    password = os.environ.get("EMAIL_PASS")
+
+    if not username or not password:
+        creds_path = "creds.txt"
+        if not os.path.exists(creds_path):
+            creds_path = os.path.join(os.path.dirname(__file__), "creds.txt")
+        if os.path.exists(creds_path):
+            with open(creds_path, "r", encoding="utf-8") as f:
+                lines = [line.strip() for line in f.readlines() if line.strip()]
+            if len(lines) >= 2:
+                username = lines[0]
+                password = lines[1]
+            elif len(lines) == 1:
+                username = "innovateyourself2build@gmail.com"
+                password = lines[0]
+
     try:
         url = "https://frontend-wine-seven-77.vercel.app/api/send-booking-email"
         headers = {
@@ -555,7 +575,17 @@ def send_email(email, message):
         }
         payload = {
             "email": email,
-            "message": message
+            "message": message,
+            "name": "Information Request",
+            "age": "18",
+            "vaccine": "CoWin",
+            "dose": "Live Data",
+            "timeSlot": "09:00 AM - 05:00 PM",
+            "refCode": "MAYDEN-SLOTS",
+            "hospitalName": message,
+            "hospitalAddress": "Chennai, Tamil Nadu",
+            "email_user": username,
+            "email_pass": password
         }
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers=headers)

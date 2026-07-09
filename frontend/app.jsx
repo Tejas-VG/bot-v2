@@ -5,7 +5,7 @@
 const { useState, useEffect, useRef, useCallback, Fragment } = React;
 
 /* ── Constants ── */
-const RASA_URL     = '';
+const RASA_URL     = 'https://tejas-vg-bot.hf.space';
 const BOT_MSG_EVT  = 'bot_uttered';
 const USER_MSG_EVT = 'user_uttered';
 
@@ -273,7 +273,7 @@ const Sidebar = ({ connClass, connLabel, onMode }) => {
           <span className={`conn-dot ${connClass === 'connected' ? 'online' : connClass === 'connecting' ? 'linking' : ''}`} />
           <span className="conn-label">{connLabel}</span>
         </div>
-        <div className="conn-endpoint">ws://localhost:5005</div>
+        <div className="conn-endpoint">{RASA_URL || 'ws://localhost:5005'}</div>
         <div className="footer-meta">
           <span>MAYDEN SMARTHEALTH v2.8</span>
           <a href="https://apisetu.gov.in/directory/api/cowin/" target="_blank" rel="noopener">CoWin Official Docs</a>
@@ -1236,7 +1236,7 @@ function App() {
     );
   };
 
-  const sendGpsCoords = (coords) => {
+  const sendGpsCoords = async (coords) => {
     setGpsModal(false);
     setUserCoords(coords);
     const lat = coords.lat.toFixed(5);
@@ -1249,9 +1249,57 @@ function App() {
       return;
     }
     setTyping(true);
-    // Send location intent + prefilled slots payload directly to RASA to bypass chatbot multi-turn prompt loops
-    const payload = `/location{"lattitude":"${lat}","longitude":"${lon}"}`;
-    socketRef.current.emit(USER_MSG_EVT, { message: payload, session_id: sidRef.current });
+
+    // Use Rasa REST API to directly set slots and trigger location action,
+    // bypassing the multi-turn form which doesn't auto-fill from payload entities.
+    try {
+      const sid = sidRef.current;
+      const baseUrl = RASA_URL;
+
+      // Step 1: Set lattitude slot
+      await fetch(`${baseUrl}/conversations/${sid}/tracker/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: 'slot', name: 'lattitude', value: lat }),
+      });
+
+      // Step 2: Set longitude slot
+      await fetch(`${baseUrl}/conversations/${sid}/tracker/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: 'slot', name: 'longitude', value: lon }),
+      });
+
+      // Step 3: Trigger the location action directly via REST API
+      const resp = await fetch(`${baseUrl}/conversations/${sid}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'action_location_submit', policy: null, confidence: null }),
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        setTyping(false);
+        const responses = data.messages || [];
+        responses.forEach(msg => {
+          if (msg.text) {
+            setMessages(prev => [...prev, { type: 'assistant', text: msg.text, buttons: msg.buttons, time: now() }]);
+          }
+        });
+        if (responses.length === 0) {
+          setMessages(prev => [...prev, { type: 'system', text: 'No response from backend. Is the model loaded?', time: now() }]);
+        }
+      } else {
+        // Fallback: use socket emit with the payload (original method)
+        setTyping(true);
+        const payload = `/location{"lattitude":"${lat}","longitude":"${lon}"}`;
+        socketRef.current.emit(USER_MSG_EVT, { message: payload, session_id: sid });
+      }
+    } catch (err) {
+      // Fallback on network error: use socket
+      const payload = `/location{"lattitude":"${lat}","longitude":"${lon}"}`;
+      socketRef.current.emit(USER_MSG_EVT, { message: payload, session_id: sidRef.current });
+    }
   };
 
   /* Send message */

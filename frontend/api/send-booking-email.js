@@ -6,20 +6,20 @@ module.exports = async (req, res) => {
     return res.status(405).json({ status: 'error', message: 'Method Not Allowed' });
   }
 
-  const { email, name, age, vaccine, dose, timeSlot, refCode, hospitalName, hospitalAddress, message } = req.body || {};
+  const { email, name, age, vaccine, dose, timeSlot, refCode, hospitalName, hospitalAddress, message, email_user, email_pass } = req.body || {};
 
   if (!email) {
     return res.status(400).json({ status: 'error', message: 'Missing recipient email' });
   }
 
-  // Get credentials from environment variables
-  const username = process.env.EMAIL_USER || 'innovateyourself2build@gmail.com';
-  const password = process.env.EMAIL_PASS;
+  // Get credentials from body, falling back to environment variables
+  const username = email_user || process.env.EMAIL_USER || 'innovateyourself2build@gmail.com';
+  const password = email_pass || process.env.EMAIL_PASS;
 
   if (!password) {
     return res.status(500).json({ 
       status: 'error', 
-      message: 'Email credentials missing. Please set EMAIL_PASS environment variable in Vercel settings.' 
+      message: 'Email credentials missing. Please configure EMAIL_PASS in Vercel settings or send credentials in the request body.' 
     });
   }
 

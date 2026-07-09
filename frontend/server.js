@@ -1,14 +1,17 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 
 app.use(express.json());
 
 // Proxy socket.io requests to RASA
+const rasaUrl = process.env.RASA_URL || 'http://localhost:5005';
 const apiProxy = createProxyMiddleware({
   pathFilter: '/socket.io',
-  target: 'http://localhost:5005', 
+  target: rasaUrl, 
   ws: true,
   changeOrigin: true
 });
@@ -20,11 +23,18 @@ app.post('/api/send-booking-email', (req, res) => {
   const { email, name, age, vaccine, dose, timeSlot, refCode, hospitalName, hospitalAddress } = req.body;
   
   const exec = require('child_process').exec;
-  const path = require('path');
   
-  // Resolve paths to environment python and mailer script
-  const pythonPath = path.join(__dirname, '..', 'env', 'Scripts', 'python.exe');
-  const scriptPath = path.join(__dirname, '..', 'api', 'send_booking_email.py');
+  // Resolve paths cross-platform: Windows local dev uses virtualenv python, Linux uses system python3
+  const isWin = process.platform === 'win32';
+  const pythonPath = isWin 
+    ? path.join(__dirname, '..', 'env', 'Scripts', 'python.exe')
+    : 'python3';
+  
+  // Find script path relative to server.js (local dev has it in parent, HF Space has it in same directory/root)
+  let scriptPath = path.join(__dirname, 'api', 'send_booking_email.py');
+  if (!fs.existsSync(scriptPath)) {
+    scriptPath = path.join(__dirname, '..', 'api', 'send_booking_email.py');
+  }
   
   const esc = (str) => (str || '').replace(/"/g, '\\"');
   
@@ -55,10 +65,11 @@ app.post('/api/send-booking-email', (req, res) => {
 // Serve static frontend files
 app.use(express.static(__dirname));
 
-const PORT = 3000;
+const PORT = process.env.PORT || 7860;
 const server = app.listen(PORT, () => {
   console.log(`Frontend & Proxy running on port ${PORT}`);
 });
 
 // CRITICAL: Proxy websockets by listening to the upgrade event
 server.on('upgrade', apiProxy.upgrade);
+
