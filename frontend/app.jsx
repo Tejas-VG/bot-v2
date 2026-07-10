@@ -1271,57 +1271,8 @@ function App() {
     }
     setTyping(true);
 
-    // Use Rasa REST API to directly set slots and trigger location action,
-    // bypassing the multi-turn form which doesn't auto-fill from payload entities.
-    try {
-      const sid = sidRef.current;
-      const baseUrl = RASA_URL;
-
-      // Step 1: Set lattitude slot
-      await fetch(`${baseUrl}/conversations/${sid}/tracker/events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event: 'slot', name: 'lattitude', value: lat }),
-      });
-
-      // Step 2: Set longitude slot
-      await fetch(`${baseUrl}/conversations/${sid}/tracker/events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event: 'slot', name: 'longitude', value: lon }),
-      });
-
-      // Step 3: Trigger the location action directly via REST API
-      const resp = await fetch(`${baseUrl}/conversations/${sid}/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'action_location_submit', policy: null, confidence: null }),
-      });
-
-      if (resp.ok) {
-        const data = await resp.json();
-        setTyping(false);
-        const responses = data.messages || [];
-        responses.forEach(msg => {
-          const text = msg.text || '';
-          const buttons = msg.buttons || null;
-          const image = msg.image || null;
-          handleIncomingBotMessage(text, buttons, image);
-        });
-        if (responses.length === 0) {
-          setMessages(prev => [...prev, { type: 'system', text: 'No response from backend. Is the model loaded?', time: now() }]);
-        }
-      } else {
-        // Fallback: use socket emit with the payload (original method)
-        setTyping(true);
-        const payload = `/location{"lattitude":"${lat}","longitude":"${lon}"}`;
-        socketRef.current.emit(USER_MSG_EVT, { message: payload, session_id: sid });
-      }
-    } catch (err) {
-      // Fallback on network error: use socket
-      const payload = `/location{"lattitude":"${lat}","longitude":"${lon}"}`;
-      socketRef.current.emit(USER_MSG_EVT, { message: payload, session_id: sidRef.current });
-    }
+    const payload = `/location{"lattitude":"${lat}","longitude":"${lon}"}`;
+    socketRef.current.emit(USER_MSG_EVT, { message: payload, session_id: sidRef.current });
   };
 
   /* Send message */
