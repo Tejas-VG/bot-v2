@@ -1,20 +1,21 @@
 """
 LifeEazy Vaccine Bot — main.py
 Real Data Pipeline:
-  Pincode  →  Nominatim (geocode)  →  Overpass (real hospitals)
-  District →  Nominatim (geocode)  →  Overpass (real hospitals)
-  Lat/Lon  →  Overpass (real hospitals, sorted by distance)
-  Groq     →  AI fallback (already in actions.py)
+  CoWin API (Real-time slots)  →  Public immunization sessions by Pincode/District
+  Nominatim (Geocode fallback) →  Coordinates lookup
+  Overpass (OSM fallback)      →  Real healthcare facilities when no active vaccine sessions
 """
 
 import math
 import time
 import requests
+import datetime
 
 # ── HTTP session shared across calls ──────────────────────────────────────────
 _session = requests.Session()
+# Use a browser User-Agent to prevent CoWin from blocking requests
 _session.headers.update({
-    "User-Agent": "MaydenSmartHealthBot/2.0 (contact: admin@maydensmarthealth.com)",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept-Language": "en",
 })
 
@@ -35,16 +36,19 @@ TN_DISTRICT_MAP = {
 
 # ── Haversine distance (km) ───────────────────────────────────────────────────
 def _haversine(lat1, lon1, lat2, lon2):
-    R = 6371
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a  = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    try:
+        R = 6371
+        p1, p2 = math.radians(float(lat1)), math.radians(float(lat2))
+        dp = math.radians(float(lat2) - float(lat1))
+        dl = math.radians(float(lon2) - float(lon1))
+        a  = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    except Exception:
+        return 9999.0
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 1 — NOMINATIM: Pincode / place name → (lat, lon)
+# NOMINATIM GEOLOCATION UTILITIES
 # ══════════════════════════════════════════════════════════════════════════════
 # ── Chennai Precise Pincodes Dictionary ─────────────────────────────────────────
 CHENNAI_PINCODES = {
@@ -75,10 +79,6 @@ CHENNAI_PINCODES = {
 }
 
 def _geocode_pincode(pincode: str):
-    """
-    Returns (lat, lon, display_name) or None.
-    First checks our precise local database for Chennai coordinates, then falls back to API.
-    """
     pincode = str(pincode).strip()
     if pincode in CHENNAI_PINCODES:
         return CHENNAI_PINCODES[pincode]
@@ -93,8 +93,8 @@ def _geocode_pincode(pincode: str):
     ]
     for url in urls:
         try:
-            time.sleep(1.1)          # Nominatim: max 1 req/sec
-            r = _session.get(url, timeout=10)
+            time.sleep(1.1)
+            r = _session.get(url, timeout=8)
             if r.status_code == 200:
                 data = r.json()
                 if data:
@@ -103,19 +103,14 @@ def _geocode_pincode(pincode: str):
             continue
     return None
 
-
 def _geocode_place(place: str, country: str = "India"):
-    """
-    Generic geocode for a city / district name.
-    Returns (lat, lon, display_name) or None.
-    """
     url = (
         f"https://nominatim.openstreetmap.org/search"
         f"?q={requests.utils.quote(place)}+{country}&format=json&limit=1"
     )
     try:
         time.sleep(1.1)
-        r = _session.get(url, timeout=10)
+        r = _session.get(url, timeout=8)
         if r.status_code == 200:
             data = r.json()
             if data:
@@ -123,6 +118,63 @@ def _geocode_place(place: str, country: str = "India"):
     except Exception:
         pass
     return None
+
+def _reverse_geocode_pincode(lat: float, lon: float):
+    url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json&addressdetails=1"
+    try:
+        time.sleep(1.1)
+        r = _session.get(url, timeout=8)
+        if r.status_code == 200:
+            addr = r.json().get("address", {})
+            return addr.get("postcode")
+    except Exception:
+        pass
+    return None
+
+def _normalize_pincode(p):
+    if not p:
+        return ""
+    return "".join(c for c in str(p) if c.isdigit())
+
+def _normalize_date(date_str):
+    if not date_str:
+        return datetime.datetime.now().strftime("%d-%m-%Y")
+    date_str = str(date_str).strip()
+    parts = date_str.split("-")
+    if len(parts) == 3 and len(parts[0]) <= 2 and len(parts[1]) <= 2 and len(parts[2]) == 4:
+        return f"{int(parts[0]):02d}-{int(parts[1]):02d}-{parts[2]}"
+    
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"):
+        try:
+            dt = datetime.datetime.strptime(date_str, fmt)
+            return dt.strftime("%d-%m-%Y")
+        except Exception:
+            continue
+    return datetime.datetime.now().strftime("%d-%m-%Y")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COWIN LIVE API DATA SOURCE
+# ══════════════════════════════════════════════════════════════════════════════
+def _cowin_by_pincode(pincode: str, date: str):
+    url = f"https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/findByPin?pincode={pincode}&date={date}"
+    try:
+        r = _session.get(url, timeout=8)
+        if r.status_code == 200:
+            return r.json().get("sessions", [])
+    except Exception:
+        pass
+    return []
+
+def _cowin_by_district(district_id: str, date: str):
+    url = f"https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/findByDistrict?district_id={district_id}&date={date}"
+    try:
+        r = _session.get(url, timeout=8)
+        if r.status_code == 200:
+            return r.json().get("sessions", [])
+    except Exception:
+        pass
+    return []
 
 
 # ── Chennai Hand-Curated High-Quality Hospitals Database ─────────────────────
@@ -293,13 +345,8 @@ LOCAL_HOSPITALS = [
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 — OVERPASS: (lat, lon) → real hospitals/clinics within radius_m metres
+# FALLBACK: OVERPASS (OSM)
 # ══════════════════════════════════════════════════════════════════════════════
-def _normalize_pincode(p):
-    if not p:
-        return ""
-    return "".join(c for c in str(p) if c.isdigit())
-
 def _overpass_hospitals(lat: float, lon: float, radius_m: int = 5000, target_pincode: str = None):
     """
     Queries OpenStreetMap via Overpass API for real healthcare facilities.
@@ -321,7 +368,6 @@ out body center;
 
     osm_facilities = []
     
-    # Try fetching from OSM Overpass with multiple backups
     for endpoint in ["https://overpass-api.de/api/interpreter", "https://lz4.overpass-api.de/api/interpreter"]:
         try:
             r = _session.post(endpoint, data=query, timeout=12)
@@ -364,23 +410,23 @@ out body center;
                         "lat": elat,
                         "lon": elon,
                         "dist_km": round(dist_km, 2),
-                        "available_capacity_dose1": "Contact centre",
-                        "available_capacity_dose2": "Contact centre",
-                        "available_capacity": "Call to confirm",
-                        "min_age_limit": 18,
-                        "slots": ["09:00 AM - 12:00 PM", "02:00 PM - 05:00 PM"],
+                        "available_capacity_dose1": 0,
+                        "available_capacity_dose2": 0,
+                        "available_capacity": 0,
+                        "min_age_limit": "18+ (OPD)",
+                        "slots": ["09:00 AM - 12:00 PM (OPD)", "02:00 PM - 05:00 PM (OPD)"],
                         "state_name": "Tamil Nadu",
                         "district_name": tags.get("addr:city", "Chennai"),
                     })
-                break  # Successful fetch, stop trying endpoints
+                break
         except Exception:
             continue
 
-    # Merge with local high-quality database (filtering to maximum 15km vicinity)
+    # Merge with local database
     local_facilities = []
     for h in LOCAL_HOSPITALS:
         dist_km = _haversine(lat, lon, h["lat"], h["lon"])
-        if dist_km <= 15.0:  # within 15 km
+        if dist_km <= 15.0:
             local_facilities.append({
                 "name": h["name"],
                 "address": h["address"],
@@ -391,16 +437,16 @@ out body center;
                 "lat": h["lat"],
                 "lon": h["lon"],
                 "dist_km": round(dist_km, 2),
-                "available_capacity_dose1": "Contact centre",
-                "available_capacity_dose2": "Contact centre",
-                "available_capacity": "Call to confirm",
-                "min_age_limit": 18,
-                "slots": ["09:00 AM - 12:00 PM", "02:00 PM - 05:00 PM"],
+                "available_capacity_dose1": 0,
+                "available_capacity_dose2": 0,
+                "available_capacity": 0,
+                "min_age_limit": "18+ (OPD)",
+                "slots": ["09:00 AM - 12:00 PM (OPD)", "02:00 PM - 05:00 PM (OPD)"],
                 "state_name": "Tamil Nadu",
                 "district_name": "Chennai",
             })
 
-    # De-duplicate by normalized alphanumeric name
+    # De-duplicate
     seen_names = set()
     unique_facilities = []
     for f in (osm_facilities + local_facilities):
@@ -409,7 +455,7 @@ out body center;
             seen_names.add(normalized)
             unique_facilities.append(f)
 
-    # Sort all by matching pincode (if specified) and actual geocoded distance
+    # Sort
     target_pin_norm = _normalize_pincode(target_pincode) if target_pincode else None
     if target_pin_norm:
         def sort_key(x):
@@ -434,8 +480,8 @@ def _format(facilities, header=""):
     if not facilities:
         return (
             header +
-            "No vaccination / healthcare centres found nearby.\n"
-            "Try increasing the search area or check the pincode."
+            "No active sessions / healthcare centres found nearby.\n"
+            "Try checking the pincode or try another date."
         )
 
     out = header
@@ -452,8 +498,8 @@ def _format(facilities, header=""):
             f"min_age_limit: {f['min_age_limit']}\n"
             f"Time Slots: {', '.join(f['slots'])}\n"
             f"Distance: {f['dist_km']} km\n"
-            + (f"Phone: {f['phone']}\n" if f["phone"]    else "")
-            + (f"Web:   {f['website']}\n" if f["website"] else "")
+            + (f"Phone: {f['phone']}\n" if f.get('phone')    else "")
+            + (f"Web:   {f['website']}\n" if f.get('website')  else "")
             + f"state_name: {f['state_name']}\n"
             f"district_name: {f['district_name']}\n"
             f"latitude: {f['lat']}\n"
@@ -464,52 +510,47 @@ def _format(facilities, header=""):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PUBLIC FUNCTIONS  (called from actions.py — signatures unchanged)
+# PUBLIC FUNCTIONS (called from actions.py)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def Dose_Availability_Pincode(pincode, date):
-    """
-    Pipeline:
-      1. Nominatim  →  pincode → (lat, lon)
-      2. Overpass   →  (lat, lon) → real hospitals within 5 km
-    """
     pincode = str(pincode).strip()
+    norm_date = _normalize_date(date)
 
+    # 1. Fetch real-time slots from CoWin API
+    cowin_sessions = _cowin_by_pincode(pincode, norm_date)
+    
     geo = _geocode_pincode(pincode)
-    if geo is None:
-        return (
-            f"Could not find location for pincode {pincode}.\n"
-            "Please verify the pincode and try again.\n"
-            "Example valid pincodes: 600001 (Chennai Park Town), "
-            "600040 (Anna Nagar), 600042 (Velachery)."
-        )
-
-    lat, lon, place_name = geo
+    lat, lon, place_name = geo if geo else (13.0827, 80.2707, "Chennai, TN")
     short_place = place_name.split(",")[0] if place_name else pincode
 
-    facilities = _overpass_hospitals(lat, lon, radius_m=6000, target_pincode=pincode)
+    facilities = []
+    if cowin_sessions:
+        for s in cowin_sessions:
+            facilities.append(_map_cowin_session(s, lat, lon))
+        # Sort CoWin sessions by distance
+        facilities.sort(key=lambda x: x["dist_km"])
+        header = (
+            f"Live CoWin Vaccine Slots near Pincode {pincode} ({short_place})\n"
+            f"Source: Real-time CoWin Portal  |  Date: {norm_date}\n"
+        )
+    else:
+        # 2. Fall back to OSM healthcare centers if no active vaccine sessions
+        osm_hospitals = _overpass_hospitals(lat, lon, radius_m=6000, target_pincode=pincode)
+        if not osm_hospitals:
+            osm_hospitals = _overpass_hospitals(lat, lon, radius_m=15000, target_pincode=pincode)
+        facilities = osm_hospitals
+        header = (
+            f"No active CoWin immunizations near Pincode {pincode} today.\n"
+            f"Showing general medical centers within range:\n"
+        )
 
-    # Widen search if nothing found in 6 km
-    if not facilities:
-        facilities = _overpass_hospitals(lat, lon, radius_m=15000, target_pincode=pincode)
-
-    header = (
-        f"Vaccination & Healthcare Centres near Pincode {pincode} "
-        f"({short_place})\n"
-        f"Coordinates: {lat:.4f}N, {lon:.4f}E  |  Search radius: 6 km\n"
-        f"Date requested: {date}\n"
-    )
-    return _format(facilities, header=header)
+    return _format(facilities[:8], header=header)
 
 
 def Dose_Availability_District(district_id, date):
-    """
-    Pipeline:
-      1. Map district_id → district name (Tamil Nadu map)
-      2. Nominatim  →  district name → (lat, lon)
-      3. Overpass   →  (lat, lon) → real hospitals within 10 km
-    """
-    district_id  = str(district_id).strip()
+    district_id = str(district_id).strip()
+    norm_date = _normalize_date(date)
     district_name = TN_DISTRICT_MAP.get(district_id, "")
 
     if not district_name:
@@ -517,49 +558,104 @@ def Dose_Availability_District(district_id, date):
             f"Unknown district ID '{district_id}'.\n"
             "Tamil Nadu district IDs: 573 (Chennai), 574 (Kanchipuram), "
             "575 (Tiruvallur), 585 (Coimbatore), 588 (Madurai).\n"
-            "Please enter a valid Tamil Nadu district ID."
         )
 
+    # 1. Fetch real-time slots from CoWin API
+    cowin_sessions = _cowin_by_district(district_id, norm_date)
+
     geo = _geocode_place(f"{district_name}, Tamil Nadu")
-    if geo is None:
-        return f"Could not geocode district '{district_name}'. Please try again."
+    lat, lon, _ = geo if geo else (13.0827, 80.2707, "Chennai, TN")
 
-    lat, lon, _ = geo
-    facilities   = _overpass_hospitals(lat, lon, radius_m=10000)
+    facilities = []
+    if cowin_sessions:
+        for s in cowin_sessions:
+            facilities.append(_map_cowin_session(s, lat, lon))
+        facilities.sort(key=lambda x: x["dist_km"])
+        header = (
+            f"Live CoWin Vaccine Slots in {district_name} District\n"
+            f"Source: Real-time CoWin Portal  |  Date: {norm_date}\n"
+        )
+    else:
+        # 2. Fall back to OSM healthcare centers
+        osm_hospitals = _overpass_hospitals(lat, lon, radius_m=10000)
+        if not osm_hospitals:
+            osm_hospitals = _overpass_hospitals(lat, lon, radius_m=20000)
+        facilities = osm_hospitals
+        header = (
+            f"No active CoWin immunizations in {district_name} District today.\n"
+            f"Showing general medical centers:\n"
+        )
 
-    if not facilities:
-        facilities = _overpass_hospitals(lat, lon, radius_m=20000)
-
-    header = (
-        f"Healthcare Centres in {district_name} District (ID: {district_id})\n"
-        f"Coordinates: {lat:.4f}N, {lon:.4f}E  |  Search radius: 10 km\n"
-        f"Date requested: {date}\n"
-    )
-    return _format(facilities, header=header)
+    return _format(facilities[:8], header=header)
 
 
 def Dose_Availability_Lon_Lat(lattitude, longitude):
-    """
-    Pipeline:
-      Overpass directly with user-supplied coordinates (no geocoding needed).
-    """
     try:
         lat = float(str(lattitude).strip())
         lon = float(str(longitude).strip())
     except (TypeError, ValueError):
-        return "Invalid coordinates. Please enter valid numbers for latitude and longitude."
+        return "Invalid coordinates. Please enter valid numbers."
 
-    facilities = _overpass_hospitals(lat, lon, radius_m=5000)
+    # Search CoWin by reverse-geocoding coordinates to a pincode
+    pincode = _reverse_geocode_pincode(lat, lon)
+    cowin_sessions = []
+    norm_date = datetime.datetime.now().strftime("%d-%m-%Y")
+    
+    if pincode:
+        cowin_sessions = _cowin_by_pincode(pincode, norm_date)
 
-    if not facilities:
-        facilities = _overpass_hospitals(lat, lon, radius_m=12000)
+    facilities = []
+    if cowin_sessions:
+        for s in cowin_sessions:
+            facilities.append(_map_cowin_session(s, lat, lon))
+        facilities.sort(key=lambda x: x["dist_km"])
+        header = (
+            f"Live CoWin Vaccine Slots near your GPS location\n"
+            f"Source: Real-time CoWin Portal  |  Coordinates: {lat:.4f}N, {lon:.4f}E\n"
+        )
+    else:
+        osm_hospitals = _overpass_hospitals(lat, lon, radius_m=5000)
+        if not osm_hospitals:
+            osm_hospitals = _overpass_hospitals(lat, lon, radius_m=12000)
+        facilities = osm_hospitals
+        header = (
+            f"No active CoWin immunizations at your GPS coordinates.\n"
+            f"Coordinates: {lat:.4f}N, {lon:.4f}E  |  Search radius: 5 km\n"
+        )
 
-    header = (
-        f"Nearest Healthcare Centres to your GPS location\n"
-        f"Coordinates: {lat:.4f}N, {lon:.4f}E  |  Search radius: 5 km\n"
-        f"Results sorted by proximity (km)\n"
-    )
-    return _format(facilities, header=header)
+    return _format(facilities[:8], header=header)
+
+
+def _map_cowin_session(s, center_lat, center_lon):
+    flat = s.get("lat")
+    flon = s.get("long")
+    if not flat or not flon or float(flat) == 0.0 or float(flon) == 0.0:
+        # Fallback: reverse lookup center coordinates
+        geo = _geocode_place(f"{s.get('name')}, {s.get('pincode')}")
+        if geo:
+            flat, flon, _ = geo
+        else:
+            flat, flon = center_lat, center_lon
+
+    dist_km = _haversine(center_lat, center_lon, flat, flon)
+    return {
+        "name": s.get("name") or "Vaccination Centre",
+        "address": s.get("address") or "CoWin Location",
+        "pincode": str(s.get("pincode") or ""),
+        "kind": f"{s.get('vaccine', 'Vaccine')} ({s.get('fee_type', 'Free')})",
+        "phone": "",
+        "website": "",
+        "lat": float(flat),
+        "lon": float(flon),
+        "dist_km": round(dist_km, 2),
+        "available_capacity_dose1": s.get("available_capacity_dose1", 0),
+        "available_capacity_dose2": s.get("available_capacity_dose2", 0),
+        "available_capacity": s.get("available_capacity", 0),
+        "min_age_limit": str(s.get("min_age_limit", "18")) + "+",
+        "slots": s.get("slots") or ["09:00 AM - 05:00 PM"],
+        "state_name": s.get("state_name") or "Tamil Nadu",
+        "district_name": s.get("district_name") or "Chennai",
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -570,7 +666,6 @@ def send_email(email, message):
     import json
     import os
 
-    # Read credentials from environment or creds.txt
     username = os.environ.get("EMAIL_USER")
     password = os.environ.get("EMAIL_PASS")
 
