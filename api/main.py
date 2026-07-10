@@ -470,6 +470,12 @@ out body center;
         unique_facilities.sort(key=sort_key)
     else:
         unique_facilities.sort(key=lambda x: x["dist_km"])
+
+    if unique_facilities:
+        closest_dist = unique_facilities[0]["dist_km"]
+        max_allowed_dist = max(5.0, min(15.0, closest_dist * 1.6))
+        unique_facilities = [x for x in unique_facilities if x["dist_km"] <= max_allowed_dist]
+
     return unique_facilities[:8]
 
 
@@ -530,6 +536,10 @@ def Dose_Availability_Pincode(pincode, date):
             facilities.append(_map_cowin_session(s, lat, lon))
         # Sort CoWin sessions by distance
         facilities.sort(key=lambda x: x["dist_km"])
+        if facilities:
+            closest_dist = facilities[0]["dist_km"]
+            max_allowed_dist = max(5.0, min(15.0, closest_dist * 1.6))
+            facilities = [x for x in facilities if x["dist_km"] <= max_allowed_dist]
         header = (
             f"Live CoWin Vaccine Slots near Pincode {pincode} ({short_place})\n"
             f"Source: Real-time CoWin Portal  |  Date: {norm_date}\n"
@@ -609,6 +619,10 @@ def Dose_Availability_Lon_Lat(lattitude, longitude):
         for s in cowin_sessions:
             facilities.append(_map_cowin_session(s, lat, lon))
         facilities.sort(key=lambda x: x["dist_km"])
+        if facilities:
+            closest_dist = facilities[0]["dist_km"]
+            max_allowed_dist = max(5.0, min(15.0, closest_dist * 1.6))
+            facilities = [x for x in facilities if x["dist_km"] <= max_allowed_dist]
         header = (
             f"Live CoWin Vaccine Slots near your GPS location\n"
             f"Source: Real-time CoWin Portal  |  Coordinates: {lat:.4f}N, {lon:.4f}E\n"
