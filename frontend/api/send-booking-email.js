@@ -12,16 +12,9 @@ module.exports = async (req, res) => {
     return res.status(400).json({ status: 'error', message: 'Missing recipient email' });
   }
 
-  // Get credentials from body, falling back to environment variables
-  const username = email_user || process.env.EMAIL_USER || 'innovateyourself2build@gmail.com';
-  const password = email_pass || process.env.EMAIL_PASS;
-
-  if (!password) {
-    return res.status(500).json({ 
-      status: 'error', 
-      message: 'Email credentials missing. Please configure EMAIL_PASS in Vercel settings or send credentials in the request body.' 
-    });
-  }
+  // Get credentials from body, falling back to environment variables or hardcoded fallback
+  const username = email_user || process.env.EMAIL_USER || '2021kpmgaming@gmail.com';
+  const password = email_pass || process.env.EMAIL_PASS || 'uemtfhqgbgqheyha';
 
   try {
     // Create SMTP transporter
