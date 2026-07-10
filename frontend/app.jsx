@@ -1097,6 +1097,42 @@ function App() {
     });
   };
 
+  const handleIncomingBotMessage = useCallback((text, buttons, image) => {
+    if (text) {
+      const coordsMatch = text.match(/Coordinates:\s*([0-9.-]+)N,\s*([0-9.-]+)E/);
+      if (coordsMatch) {
+        setUserCoords({ lat: parseFloat(coordsMatch[1]), lon: parseFloat(coordsMatch[2]) });
+      } else {
+        const gpsMatch = text.match(/Your coordinates:\s*Lat\s*([0-9.-]+),\s*Lon\s*([0-9.-]+)/i);
+        if (gpsMatch) {
+          setUserCoords({ lat: parseFloat(gpsMatch[1]), lon: parseFloat(gpsMatch[2]) });
+        }
+      }
+    }
+
+    const slotData = parseSlotData(text);
+    if (slotData) {
+      setInspData(slotData);
+      setInspActive(true);
+      setActiveHospitalIdx(0);
+      setHasNewResults(true);
+      setActiveTab('map');
+      setMessages(prev => [...prev, {
+        type: 'assistant',
+        text: `I found **${slotData.facilities.length} vaccination facilit${slotData.facilities.length === 1 ? 'y' : 'ies'}** matching your query. Full details — capacity, dose stock, timings, and age limits — are loaded in the **Live Data Inspector** on the right.`,
+        buttons,
+        time: now(),
+      }]);
+    } else {
+      if (text || buttons) {
+        setMessages(prev => [...prev, { type: 'assistant', text, buttons, time: now() }]);
+      }
+      if (image) {
+        setMessages(prev => [...prev, { type: 'assistant', image, time: now() }]);
+      }
+    }
+  }, []);
+
   const socketRef  = useRef(null);
   const sidRef     = useRef(null);
   const viewRef    = useRef(null);
@@ -1177,40 +1213,7 @@ function App() {
           ? data.buttons
           : data.quick_replies?.map(q => ({ title: q.title, payload: q.payload })) || null;
 
-        // Extract user coordinates from bot geocoded header if present
-        if (text) {
-          const coordsMatch = text.match(/Coordinates:\s*([0-9.-]+)N,\s*([0-9.-]+)E/);
-          if (coordsMatch) {
-            setUserCoords({ lat: parseFloat(coordsMatch[1]), lon: parseFloat(coordsMatch[2]) });
-          } else {
-            const gpsMatch = text.match(/Your coordinates:\s*Lat\s*([0-9.-]+),\s*Lon\s*([0-9.-]+)/i);
-            if (gpsMatch) {
-              setUserCoords({ lat: parseFloat(gpsMatch[1]), lon: parseFloat(gpsMatch[2]) });
-            }
-          }
-        }
-
-        const slotData = parseSlotData(text);
-        if (slotData) {
-          setInspData(slotData);
-          setInspActive(true);
-          setActiveHospitalIdx(0); // Reset map highlight to first hospital on new results
-          setHasNewResults(true);
-          setActiveTab('map'); // Auto switch to map tab on mobile devices
-          setMessages(prev => [...prev, {
-            type: 'assistant',
-            text: `I found **${slotData.facilities.length} vaccination facilit${slotData.facilities.length === 1 ? 'y' : 'ies'}** matching your query. Full details — capacity, dose stock, timings, and age limits — are loaded in the **Live Data Inspector** on the right.`,
-            buttons,
-            time: now(),
-          }]);
-        } else {
-          if (text || buttons) {
-            setMessages(prev => [...prev, { type: 'assistant', text, buttons, time: now() }]);
-          }
-          if (image) {
-            setMessages(prev => [...prev, { type: 'assistant', image, time: now() }]);
-          }
-        }
+        handleIncomingBotMessage(text, buttons, image);
       });
 
     } catch (e) {
@@ -1300,9 +1303,10 @@ function App() {
         setTyping(false);
         const responses = data.messages || [];
         responses.forEach(msg => {
-          if (msg.text) {
-            setMessages(prev => [...prev, { type: 'assistant', text: msg.text, buttons: msg.buttons, time: now() }]);
-          }
+          const text = msg.text || '';
+          const buttons = msg.buttons || null;
+          const image = msg.image || null;
+          handleIncomingBotMessage(text, buttons, image);
         });
         if (responses.length === 0) {
           setMessages(prev => [...prev, { type: 'system', text: 'No response from backend. Is the model loaded?', time: now() }]);
@@ -1325,7 +1329,10 @@ function App() {
     const text = raw.trim();
     if (!text) return;
 
-    setSidebarHidden(true); // Close drawer overlay on mobile
+    // Only close drawer overlay on mobile viewports
+    if (window.innerWidth <= 720) {
+      setSidebarHidden(true);
+    }
 
     // ── Button payload routing ──────────────────────────────────────────
     // RASA buttons send payloads like /pincode, /district, /location
