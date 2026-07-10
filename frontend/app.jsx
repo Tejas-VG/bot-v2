@@ -5,7 +5,7 @@
 const { useState, useEffect, useRef, useCallback, Fragment } = React;
 
 /* ── Constants ── */
-const RASA_URL     = 'https://tejas-vg-bot.hf.space';
+const RASA_URL     = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '' : 'https://tejas-vg-bot.hf.space';
 const BOT_MSG_EVT  = 'bot_uttered';
 const USER_MSG_EVT = 'user_uttered';
 
@@ -55,7 +55,8 @@ const parseSlotData = text => {
     const t = b.trim();
     if (!t.includes('Hospital Name:')) return;
     const fac = { name:'', address:'', pincode:'', dose1:null, dose2:null,
-                   total:null, ageLimit:null, slots:[], state:'', district:'' };
+                   total:null, ageLimit:null, slots:[], state:'', district:'',
+                   lat:null, lon:null };
     t.split('\n').forEach(line => {
       const i = line.indexOf(':');
       if (i < 0) return;
@@ -71,6 +72,8 @@ const parseSlotData = text => {
       else if (k === 'time slots')            fac.slots   = v.replace(/[[\]'"]/g,'').split(',').map(s=>s.trim()).filter(Boolean);
       else if (k === 'state_name')            fac.state    = v;
       else if (k === 'district_name')         fac.district = v;
+      else if (k === 'latitude')              fac.lat      = parseFloat(v);
+      else if (k === 'longitude')             fac.lon      = parseFloat(v);
     });
     if (fac.name) facilities.push(fac);
   });
@@ -487,6 +490,10 @@ const DataInspector = ({ active, data, searchMethod, userCoords, activeHospitalI
       const marker = L.marker([f.lat, f.lon], { icon: hospitalIcon })
         .bindPopup(`<b>${f.name}</b><br><small>${f.address}</small>`)
         .addTo(group);
+
+      if (isSelected) {
+        marker.openPopup();
+      }
 
       marker.on('click', () => {
         setActiveHospitalIdx(idx);
@@ -1061,6 +1068,10 @@ function App() {
   const [bookingHospital,      setBookingHospital]      = useState(null);
   const [bookingConfirmedData, setBookingConfirmedData] = useState(null);
 
+  /* Mobile responsiveness states */
+  const [activeTab,     setActiveTab]     = useState('chat'); // chat | map
+  const [hasNewResults, setHasNewResults] = useState(false);
+
   const handleConfirmBooking = (data) => {
     setBookingConfirmedData(data);
 
@@ -1171,6 +1182,11 @@ function App() {
           const coordsMatch = text.match(/Coordinates:\s*([0-9.-]+)N,\s*([0-9.-]+)E/);
           if (coordsMatch) {
             setUserCoords({ lat: parseFloat(coordsMatch[1]), lon: parseFloat(coordsMatch[2]) });
+          } else {
+            const gpsMatch = text.match(/Your coordinates:\s*Lat\s*([0-9.-]+),\s*Lon\s*([0-9.-]+)/i);
+            if (gpsMatch) {
+              setUserCoords({ lat: parseFloat(gpsMatch[1]), lon: parseFloat(gpsMatch[2]) });
+            }
           }
         }
 
@@ -1179,6 +1195,8 @@ function App() {
           setInspData(slotData);
           setInspActive(true);
           setActiveHospitalIdx(0); // Reset map highlight to first hospital on new results
+          setHasNewResults(true);
+          setActiveTab('map'); // Auto switch to map tab on mobile devices
           setMessages(prev => [...prev, {
             type: 'assistant',
             text: `I found **${slotData.facilities.length} vaccination facilit${slotData.facilities.length === 1 ? 'y' : 'ies'}** matching your query. Full details — capacity, dose stock, timings, and age limits — are loaded in the **Live Data Inspector** on the right.`,
@@ -1307,6 +1325,8 @@ function App() {
     const text = raw.trim();
     if (!text) return;
 
+    setSidebarHidden(true); // Close drawer overlay on mobile
+
     // ── Button payload routing ──────────────────────────────────────────
     // RASA buttons send payloads like /pincode, /district, /location
     // These are intent shortcuts — handle them before anything else.
@@ -1383,7 +1403,12 @@ function App() {
       onClose={() => { setBookingHospital(null); setBookingConfirmedData(null); }}
       onConfirm={handleConfirmBooking}
     />
-    <div className={`hospital-app ${sidebarHidden ? 'sidebar-hidden' : ''}`}>
+    <div className={`hospital-app ${sidebarHidden ? 'sidebar-hidden' : ''} ${activeTab === 'chat' ? 'show-chat' : 'show-map'}`}>
+
+      {/* Backdrop overlay for closing sidebar on mobile */}
+      {!sidebarHidden && (
+        <div className="sidebar-backdrop" onClick={() => setSidebarHidden(true)} />
+      )}
 
       {/* SIDEBAR */}
       <Sidebar connClass={connClass} connLabel={connLabel} onMode={send} />
@@ -1404,14 +1429,30 @@ function App() {
           </div>
           <div className="header-right">
             <button className="hdr-btn" onClick={reset}>
-              <TrashIcon /> Reset Feed
+              <TrashIcon /> <span className="hdr-btn-text">Reset Feed</span>
             </button>
             <button className="hdr-btn" onClick={newSession} style={{ marginLeft: '6px' }}>
-              <PlusIcon /> New Session
+              <PlusIcon /> <span className="hdr-btn-text">New Session</span>
             </button>
           </div>
           <EcgWave />
         </header>
+
+        {/* Mobile Tab Switcher */}
+        <div className="mobile-tabs">
+          <button 
+            className={`mobile-tab-btn ${activeTab === 'chat' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('chat')}
+          >
+            Chat Assistant
+          </button>
+          <button 
+            className={`mobile-tab-btn ${activeTab === 'map' ? 'active' : ''} ${hasNewResults ? 'has-badge' : ''}`} 
+            onClick={() => { setActiveTab('map'); setHasNewResults(false); }}
+          >
+            Map & Results
+          </button>
+        </div>
 
         {/* Viewport */}
         <div className="chat-viewport" ref={viewRef}>

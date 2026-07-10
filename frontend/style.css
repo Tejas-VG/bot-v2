@@ -753,11 +753,264 @@ textarea, input { font-family: inherit; font-size: inherit; color: inherit; back
 .q-val { font-weight: 600; color: var(--text-700); }
 
 /* ── Responsive ── */
-@media (max-width: 1100px) { .inspector { display: none; } }
+.mobile-tabs {
+  display: none;
+}
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  /* Mobile Tab Switcher */
+  .mobile-tabs {
+    display: flex;
+    background: #ffffff;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .mobile-tab-btn {
+    flex: 1;
+    padding: 10px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    border-radius: 8px;
+    text-align: center;
+    background: var(--bg-input);
+    color: var(--text-500);
+    border: 1px solid transparent;
+    transition: all var(--t);
+    position: relative;
+    cursor: pointer;
+  }
+  .mobile-tab-btn.active {
+    background: var(--green-light);
+    border-color: var(--border-green);
+    color: var(--green);
+    box-shadow: var(--shadow-xs);
+  }
+  .mobile-tab-btn.has-badge::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 8px;
+    height: 8px;
+    background: var(--red);
+    border-radius: 50%;
+    box-shadow: 0 0 6px var(--red);
+  }
+
+  /* View toggle logic based on activeTab class on .hospital-app */
+  .hospital-app.show-chat .inspector {
+    display: none !important;
+  }
+  .hospital-app.show-chat .chat-panel {
+    display: flex !important;
+    flex: 1;
+  }
+
+  .hospital-app.show-map .chat-panel {
+    flex: 1;
+  }
+  .hospital-app.show-map .chat-viewport,
+  .hospital-app.show-map .input-footer {
+    display: none !important;
+  }
+  .hospital-app.show-map .inspector {
+    display: flex !important;
+    width: 100% !important;
+    flex: 1;
+  }
+}
+
 @media (max-width: 720px) {
-  .sidebar { width: 100%; height: 66px; flex-direction: row; align-items: center; padding: 0 16px; border-right: none; border-bottom: 1px solid var(--border); }
-  .sidebar-hidden .sidebar { width: 100%; margin-left: 0; transform: none; }
-  .sidebar-top { border-bottom: none; padding: 0; flex: 0; }
-  .sidebar-section, .vitals-card, .sidebar-footer { display: none; }
-  .welcome-grid { grid-template-columns: 1fr; }
+  .hospital-app {
+    position: relative;
+  }
+  
+  /* Slide-in vertical sidebar on mobile overlay */
+  .sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100%;
+    width: 270px !important;
+    z-index: 1000;
+    transform: translateX(0);
+    margin-left: 0 !important;
+    box-shadow: 4px 0 24px rgba(13, 31, 45, 0.15);
+    background: #ffffff;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .sidebar-hidden .sidebar {
+    transform: translateX(-270px) !important;
+    pointer-events: none;
+  }
+  .sidebar-top {
+    height: 66px;
+    border-bottom: 1px solid var(--border);
+  }
+  /* Enable sections inside drawer */
+  .sidebar-section, .vitals-card, .sidebar-footer {
+    display: flex !important;
+  }
+  .sidebar-footer {
+    margin-top: auto;
+  }
+
+  /* Sidebar backdrop blur overlay */
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(13, 31, 45, 0.4);
+    backdrop-filter: blur(2px);
+    z-index: 999;
+  }
+
+  /* Header button adjustments on mobile to avoid overlap (icon-only style) */
+  .chat-header {
+    padding: 0 12px;
+    height: 56px;
+  }
+  .header-left {
+    gap: 8px;
+  }
+  .toggle-btn {
+    width: 32px;
+    height: 32px;
+  }
+  .header-title {
+    font-size: 0.86rem;
+  }
+  .header-sub {
+    font-size: 0.6rem;
+  }
+  .hdr-btn {
+    padding: 8px;
+    border-radius: 6px;
+  }
+  .hdr-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+  .hdr-btn-text {
+    display: none !important; /* Hide labels, show only icons to avoid text squeeze */
+  }
+
+  /* Welcome Screen layout adjustments (ultra compact horizontal list) */
+  .welcome-wrap {
+    padding: 16px 12px;
+    justify-content: flex-start;
+  }
+  .hospital-3d-stage {
+    display: none !important; /* Hide 3D stage on mobile to make room for interactive items */
+  }
+  .welcome-headline {
+    font-size: 1.25rem;
+    margin-top: 10px;
+  }
+  .welcome-sub {
+    font-size: 0.78rem;
+    margin-bottom: 16px;
+  }
+  .welcome-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+  .wcard {
+    flex-direction: row !important;
+    align-items: center;
+    text-align: left;
+    padding: 12px;
+    gap: 12px;
+    border-radius: 10px;
+  }
+  .wcard-icon {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+  }
+  .wcard h4 {
+    font-size: 0.84rem;
+    margin-bottom: 1px;
+  }
+  .wcard p {
+    font-size: 0.7rem;
+  }
+
+  /* Compact chat messages layout */
+  .msg-row {
+    padding: 10px 12px;
+  }
+  .msg-inner {
+    gap: 8px;
+  }
+  .msg-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    font-size: 0.6rem;
+  }
+  .msg-body {
+    font-size: 0.84rem;
+    line-height: 1.45;
+  }
+  .msg-body pre {
+    font-size: 0.72rem;
+    padding: 8px 10px;
+    margin: 6px 0;
+  }
+
+  /* Compact Input Footer */
+  .input-footer {
+    padding: 8px 12px 10px;
+  }
+  .input-box {
+    padding: 6px 6px 6px 12px;
+    border-radius: 10px;
+  }
+  .chat-textarea {
+    font-size: 0.84rem;
+    min-height: 20px;
+  }
+  .send-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+  }
+
+  /* Map container height adjustment */
+  .map-section {
+    height: 170px;
+  }
+  .inspector-body {
+    padding: 12px;
+  }
+  .fac-card {
+    padding: 10px;
+    margin-bottom: 8px;
+  }
+  .fac-name {
+    font-size: 0.82rem;
+  }
+  .fac-addr {
+    font-size: 0.7rem;
+    margin-bottom: 6px;
+  }
+  .fac-grid {
+    padding-top: 6px;
+    gap: 4px;
+  }
+  .fac-lbl {
+    font-size: 0.58rem;
+  }
+  .fac-val {
+    font-size: 0.74rem;
+  }
 }

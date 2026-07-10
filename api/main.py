@@ -295,7 +295,12 @@ LOCAL_HOSPITALS = [
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 — OVERPASS: (lat, lon) → real hospitals/clinics within radius_m metres
 # ══════════════════════════════════════════════════════════════════════════════
-def _overpass_hospitals(lat: float, lon: float, radius_m: int = 5000):
+def _normalize_pincode(p):
+    if not p:
+        return ""
+    return "".join(c for c in str(p) if c.isdigit())
+
+def _overpass_hospitals(lat: float, lon: float, radius_m: int = 5000, target_pincode: str = None):
     """
     Queries OpenStreetMap via Overpass API for real healthcare facilities.
     Merges results with local database, deduplicates, and sorts by proximity.
@@ -404,8 +409,21 @@ out body center;
             seen_names.add(normalized)
             unique_facilities.append(f)
 
-    # Sort all by actual geocoded distance (closest first)
-    unique_facilities.sort(key=lambda x: x["dist_km"])
+    # Sort all by matching pincode (if specified) and actual geocoded distance
+    target_pin_norm = _normalize_pincode(target_pincode) if target_pincode else None
+    if target_pin_norm:
+        def sort_key(x):
+            fac_pin_norm = _normalize_pincode(x.get("pincode"))
+            if fac_pin_norm == target_pin_norm:
+                prio = 0
+            elif not fac_pin_norm or fac_pin_norm == "na":
+                prio = 1
+            else:
+                prio = 2
+            return (prio, x["dist_km"])
+        unique_facilities.sort(key=sort_key)
+    else:
+        unique_facilities.sort(key=lambda x: x["dist_km"])
     return unique_facilities[:8]
 
 
@@ -438,6 +456,8 @@ def _format(facilities, header=""):
             + (f"Web:   {f['website']}\n" if f["website"] else "")
             + f"state_name: {f['state_name']}\n"
             f"district_name: {f['district_name']}\n"
+            f"latitude: {f['lat']}\n"
+            f"longitude: {f['lon']}\n"
         )
     out += "******************************\n"
     return out
@@ -467,11 +487,11 @@ def Dose_Availability_Pincode(pincode, date):
     lat, lon, place_name = geo
     short_place = place_name.split(",")[0] if place_name else pincode
 
-    facilities = _overpass_hospitals(lat, lon, radius_m=6000)
+    facilities = _overpass_hospitals(lat, lon, radius_m=6000, target_pincode=pincode)
 
     # Widen search if nothing found in 6 km
     if not facilities:
-        facilities = _overpass_hospitals(lat, lon, radius_m=15000)
+        facilities = _overpass_hospitals(lat, lon, radius_m=15000, target_pincode=pincode)
 
     header = (
         f"Vaccination & Healthcare Centres near Pincode {pincode} "
@@ -536,7 +556,7 @@ def Dose_Availability_Lon_Lat(lattitude, longitude):
 
     header = (
         f"Nearest Healthcare Centres to your GPS location\n"
-        f"Your coordinates: Lat {lat:.5f}, Lon {lon:.5f}\n"
+        f"Coordinates: {lat:.4f}N, {lon:.4f}E  |  Search radius: 5 km\n"
         f"Results sorted by proximity (km)\n"
     )
     return _format(facilities, header=header)
