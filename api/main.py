@@ -629,13 +629,36 @@ def Dose_Availability_Lon_Lat(lattitude, longitude):
 def _map_cowin_session(s, center_lat, center_lon):
     flat = s.get("lat")
     flon = s.get("long")
-    if not flat or not flon or float(flat) == 0.0 or float(flon) == 0.0:
+    
+    use_fallback = False
+    try:
+        if not flat or not flon or float(flat) == 0.0 or float(flon) == 0.0:
+            use_fallback = True
+        else:
+            # Check if CoWin's own coordinates are way off (e.g. > 15 km away from search target)
+            dist_check = _haversine(center_lat, center_lon, flat, flon)
+            if dist_check > 15.0:
+                use_fallback = True
+    except Exception:
+        use_fallback = True
+
+    if use_fallback:
         # Fallback: reverse lookup center coordinates
         geo = _geocode_place(f"{s.get('name')}, {s.get('pincode')}")
         if geo:
             flat, flon, _ = geo
+            # Double check if Nominatim geocoded coordinates are also way off
+            if _haversine(center_lat, center_lon, flat, flon) > 15.0:
+                flat, flon = None, None
         else:
-            flat, flon = center_lat, center_lon
+            flat, flon = None, None
+
+    # If geocoding failed or was also way off, fallback to center coordinates with small random jitter
+    if not flat or not flon:
+        import random
+        # Jitter of approx 0.005 degrees (approx 500 meters)
+        flat = float(center_lat) + random.uniform(-0.005, 0.005)
+        flon = float(center_lon) + random.uniform(-0.005, 0.005)
 
     dist_km = _haversine(center_lat, center_lon, flat, flon)
     return {
